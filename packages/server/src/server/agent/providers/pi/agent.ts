@@ -820,6 +820,13 @@ function parsePiSubagentStepIndex(childId: string): number | undefined {
   return Number.isSafeInteger(index) ? index : undefined;
 }
 
+class PiActiveTurnInputUnavailableError extends Error {
+  constructor(operation: "steer" | "follow-up", reason: string) {
+    super(`Pi ${operation} input is unavailable: ${reason}`);
+    this.name = "PiActiveTurnInputUnavailableError";
+  }
+}
+
 function isPiRequestAbortError(error: unknown): boolean {
   if (error instanceof Error && error.name === "AbortError") {
     return true;
@@ -1353,14 +1360,14 @@ export class PiRpcAgentSession implements AgentSession {
     options: SteerActiveTurnOptions,
   ): Promise<SteerResult> {
     if (this.activeTurnId !== options.expectedTurnId) {
-      return { status: "unavailable" };
+      throw new PiActiveTurnInputUnavailableError("steer", "the active turn changed");
     }
     const payload = convertPromptInput(prompt, { model: this.state.model });
     if (this.parseSlashCommandInput(payload.text) !== null) {
-      return { status: "unavailable" };
-    }
-    if (this.activeTurnId !== options.expectedTurnId) {
-      return { status: "unavailable" };
+      throw new PiActiveTurnInputUnavailableError(
+        "steer",
+        "slash commands cannot be submitted during an active turn",
+      );
     }
     await this.runtimeSession.steer(payload.text, payload.images);
     if (options.clientMessageId) {
@@ -1377,14 +1384,14 @@ export class PiRpcAgentSession implements AgentSession {
     options: FollowUpActiveTurnOptions,
   ): Promise<SteerResult> {
     if (this.activeTurnId !== options.expectedTurnId) {
-      return { status: "unavailable" };
+      throw new PiActiveTurnInputUnavailableError("follow-up", "the active turn changed");
     }
     const payload = convertPromptInput(prompt, { model: this.state.model });
     if (this.parseSlashCommandInput(payload.text) !== null) {
-      return { status: "unavailable" };
-    }
-    if (this.activeTurnId !== options.expectedTurnId) {
-      return { status: "unavailable" };
+      throw new PiActiveTurnInputUnavailableError(
+        "follow-up",
+        "slash commands cannot be queued during an active turn",
+      );
     }
     await this.runtimeSession.followUp(payload.text, payload.images);
     if (options.clientMessageId) {
@@ -1466,6 +1473,7 @@ export class PiRpcAgentSession implements AgentSession {
       throw new Error("A Pi turn is already active");
     }
 
+    this.pendingAcceptedContinuationTexts.splice(0, this.pendingAcceptedContinuationTexts.length);
     const payload = convertPromptInput(prompt, { model: this.state.model });
     const turnId = randomUUID();
     this.activeTurnId = turnId;
