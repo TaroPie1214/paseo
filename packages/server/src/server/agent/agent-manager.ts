@@ -2443,7 +2443,12 @@ export class AgentManager {
         expectedTurnId,
       });
       if (admission.status === "accepted") {
-        await this.recordAcceptedSteer(agent, prompt, options?.clientMessageId, expectedTurnId);
+        await this.recordAcceptedActiveTurnInput(
+          agent,
+          prompt,
+          options?.clientMessageId,
+          expectedTurnId,
+        );
       }
       return admission;
     });
@@ -2451,6 +2456,37 @@ export class AgentManager {
     // still owns the active turn. Never let an A admission replace a later B.
     if (result.status === "unavailable" && agent.activeTurnId !== expectedTurnId) {
       throw new Error("Active turn changed before steering could be delivered");
+    }
+    return result;
+  }
+
+  async followUpAgentRun(
+    agentId: string,
+    prompt: AgentPromptInput,
+    options?: AgentRunOptions,
+  ): Promise<SteerResult> {
+    const agent = this.requireSessionAgent(agentId);
+    const expectedTurnId = agent.activeForegroundTurnId ?? agent.activeTurnId;
+    if (!expectedTurnId || !agent.session.followUpActiveTurn) {
+      return { status: "unavailable" };
+    }
+    const result = await this.runSteerAdmission(agent, expectedTurnId, async () => {
+      const admission = await agent.session.followUpActiveTurn!(prompt, {
+        ...options,
+        expectedTurnId,
+      });
+      if (admission.status === "accepted") {
+        await this.recordAcceptedActiveTurnInput(
+          agent,
+          prompt,
+          options?.clientMessageId,
+          expectedTurnId,
+        );
+      }
+      return admission;
+    });
+    if (result.status === "unavailable" && agent.activeTurnId !== expectedTurnId) {
+      throw new Error("Active turn changed before follow-up could be delivered");
     }
     return result;
   }
@@ -2473,7 +2509,12 @@ export class AgentManager {
             expectedTurnId,
           });
           if (admission.status === "accepted") {
-            await this.recordAcceptedSteer(agent, prompt, options?.clientMessageId, expectedTurnId);
+            await this.recordAcceptedActiveTurnInput(
+              agent,
+              prompt,
+              options?.clientMessageId,
+              expectedTurnId,
+            );
           }
           return admission;
         })
@@ -2573,7 +2614,7 @@ export class AgentManager {
     }
   }
 
-  private async recordAcceptedSteer(
+  private async recordAcceptedActiveTurnInput(
     agent: ActiveManagedAgent,
     prompt: AgentPromptInput,
     clientMessageId: string | undefined,

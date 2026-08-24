@@ -32,6 +32,7 @@ import {
   type SteerActiveTurnOptions,
   type SteerResult,
   type FetchCatalogOptions,
+  type FollowUpActiveTurnOptions,
   type ImportableProviderSession,
   type ImportProviderSessionContext,
   type ImportProviderSessionInput,
@@ -1257,6 +1258,7 @@ export class PiRpcAgentSession implements AgentSession {
   private readonly pendingExtensionUiRequests = new Map<string, AgentPermissionRequest>();
   private readonly subagentsBridge = new PiSubagentsBridge();
   private readonly requestedSubagentInspections = new Set<string>();
+  private readonly pendingAcceptedContinuationTexts: string[] = [];
   private activeAskUserDialog: ActiveAskUserDialog | null = null;
   private pendingCombinedAskUserResponse: PendingCombinedAskUserResponse | null = null;
   private activeTurnId: string | null = null;
@@ -1360,8 +1362,32 @@ export class PiRpcAgentSession implements AgentSession {
       return { status: "unavailable" };
     }
     await this.runtimeSession.steer(payload.text, payload.images);
+    if (options.clientMessageId) {
+      this.pendingAcceptedContinuationTexts.push(payload.text);
+    }
     if (options.clearPendingPermissions) {
       await this.clearPendingPermissionsForSteer();
+    }
+    return { status: "accepted" };
+  }
+
+  async followUpActiveTurn(
+    prompt: AgentPromptInput,
+    options: FollowUpActiveTurnOptions,
+  ): Promise<SteerResult> {
+    if (this.activeTurnId !== options.expectedTurnId) {
+      return { status: "unavailable" };
+    }
+    const payload = convertPromptInput(prompt, { model: this.state.model });
+    if (this.parseSlashCommandInput(payload.text) !== null) {
+      return { status: "unavailable" };
+    }
+    if (this.activeTurnId !== options.expectedTurnId) {
+      return { status: "unavailable" };
+    }
+    await this.runtimeSession.followUp(payload.text, payload.images);
+    if (options.clientMessageId) {
+      this.pendingAcceptedContinuationTexts.push(payload.text);
     }
     return { status: "accepted" };
   }
@@ -2035,6 +2061,11 @@ export class PiRpcAgentSession implements AgentSession {
     }
     const [entry] = parseCapturedEntries([payload.entry]);
     if (!entry) {
+      return true;
+    }
+    const pendingContinuationIndex = this.pendingAcceptedContinuationTexts.indexOf(entry.text);
+    if (pendingContinuationIndex >= 0) {
+      this.pendingAcceptedContinuationTexts.splice(pendingContinuationIndex, 1);
       return true;
     }
     this.emit({
