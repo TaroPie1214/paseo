@@ -368,6 +368,7 @@ interface ManagedAgentBase {
   features?: AgentFeature[];
   currentModeId: string | null;
   pendingPermissions: Map<string, AgentPermissionRequest>;
+  pendingInputQueue?: { steering: string[]; followUp: string[] };
   bufferedPermissionResolutions: Map<
     string,
     Extract<AgentStreamEvent, { type: "permission_resolved" }>
@@ -1699,6 +1700,7 @@ export class AgentManager {
         features: record.features,
         currentModeId: record.lastModeId ?? null,
         pendingPermissions: new Map(),
+        pendingInputQueue: { steering: [], followUp: [] },
         bufferedPermissionResolutions: new Map(),
         inFlightPermissionResponses: new Set(),
         pendingReplacement: false,
@@ -3373,6 +3375,7 @@ export class AgentManager {
       availableModes: [],
       currentModeId: null,
       pendingPermissions: new Map<string, AgentPermissionRequest>(),
+      pendingInputQueue: { steering: [], followUp: [] },
       bufferedPermissionResolutions: new Map(),
       inFlightPermissionResponses: new Set(),
       pendingReplacement: false,
@@ -3435,6 +3438,7 @@ export class AgentManager {
       activeTurnId: null,
       activeTurnStartedAt: null,
       pendingPermissions: new Map(),
+      pendingInputQueue: { steering: [], followUp: [] },
       bufferedPermissionResolutions: new Map(),
       inFlightPermissionResponses: new Set(),
       pendingReplacement: false,
@@ -3551,6 +3555,15 @@ export class AgentManager {
     if (event.type === "provider_subagent") {
       const update = this.providerSubagents.apply(agent.id, event.provider, event.event);
       this.dispatch({ type: "provider_subagent", event: update });
+      return;
+    }
+    if (event.type === "input_queue_updated") {
+      agent.pendingInputQueue = {
+        steering: [...event.steering],
+        followUp: [...event.followUp],
+      };
+      this.touchUpdatedAt(agent);
+      this.emitState(agent);
       return;
     }
     const turnId = getAgentStreamEventTurnId(event);

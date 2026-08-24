@@ -1049,6 +1049,7 @@ function isProcessExitEvent(
 function isPiAgentSessionEvent(event: PiRuntimeEvent): event is PiAgentSessionEvent {
   switch (event.type) {
     case "agent_start":
+    case "queue_update":
     case "turn_start":
     case "message_start":
     case "message_end":
@@ -2300,6 +2301,14 @@ export class PiRpcAgentSession implements AgentSession {
     }
 
     switch (event.type) {
+      case "queue_update":
+        this.emit({
+          type: "input_queue_updated",
+          provider: this.provider,
+          steering: [...event.steering],
+          followUp: [...event.followUp],
+        });
+        return;
       case "agent_start":
         this.activeTurnStarted = true;
         this.clearNoTurnBuffers();
